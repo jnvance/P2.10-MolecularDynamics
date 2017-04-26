@@ -217,15 +217,17 @@ void compute_list(const int natoms,const vector<Vector>& positions,const double 
   Vector distance_pbc; // minimum-image distance of the two atoms
   double listcutoff2;  // squared list cutoff
   listcutoff2=listcutoff*listcutoff;
-  list.assign(natoms,vector<int>());
-  for(int iatom=0;iatom<natoms-1;iatom++){
+
+  list.assign(natoms_local,vector<int>());
+
+  for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
     for(int jatom=iatom+1;jatom<natoms;jatom++){
       for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
       pbc(cell,distance,distance_pbc);
 // if the interparticle distance is larger than the cutoff, skip
       double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
       if(d2>listcutoff2)continue;
-      list[iatom].push_back(jatom);
+      list[iatom/nprocs].push_back(jatom);
     }
   }
 }
@@ -251,17 +253,11 @@ void compute_forces(const int natoms,const vector<Vector>& positions,const doubl
   for(int i=0;i<natoms;i++)for(int k=0;k<3;k++) forces[i][k]=0.0;
   engcorrection=4.0*(1.0/pow(forcecutoff2,6.0)-1.0/pow(forcecutoff2,3));
 
-  // for(int iatom=0;iatom<natoms-1;iatom++){
-
-#ifdef _STRIDE
   for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
-#else
-  for(int iatom=nstart_local; (iatom < nstart_local+natoms_local) && (iatom<natoms-1);iatom++){
-#endif
 
-    for(int jlist=0;jlist<list[iatom].size();jlist++){
+    for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
+      int jatom=list[iatom/nprocs][jlist];
 
-      int jatom=list[iatom][jlist];
       for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
       pbc(cell,distance,distance_pbc);
       distance_pbc2=0.0; for(int k=0;k<3;k++) distance_pbc2+=distance_pbc[k]*distance_pbc[k];
@@ -439,12 +435,14 @@ int main(FILE*in,FILE*out){
   nstart_local = natoms_local*myrank;
   int rem_rows = natoms % nprocs;
 
-   // Handling of remainder atoms: Determine the number of rows for each process
-      // and distribute remaining load to last few rows 
-  if ( myrank >= nprocs-rem_rows ) {
+// Distribute remaining load to first few rows 
+  if ( myrank < rem_rows ){
       natoms_local += 1;
-      nstart_local += myrank-nprocs+rem_rows;
+      nstart_local += myrank;
   }
+  else 
+      nstart_local += rem_rows;
+
   std::cout << myrank << "/" << nprocs << "\tsize:" << natoms_local << "\tstart:" << nstart_local << std::endl;
 
 // write the parameters in output so they can be checked
