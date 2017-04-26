@@ -9,4 +9,4 @@ clean:
 	rm -rf simplemd.x *.o *.dSYM
 	
 run: simplemd.x
-	cd ../input; ../serial/simplemd.x in
+	cd ../input; /usr/bin/time ../serial/simplemd.x in
