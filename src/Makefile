@@ -9,4 +9,4 @@ clean:
 	rm -rf simplemd.x *.o *.dSYM
 	
 run: simplemd.x
-	cd ../input; ../src/simplemd.x in
+	cd ../input; ../src/simplemd.x in_parallel
