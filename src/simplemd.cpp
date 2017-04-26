@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include <cstdlib>
+#include <mpi.h>
 
 using namespace std;
 using namespace PLMD;
@@ -34,6 +35,10 @@ SimpleMD(){
   write_statistics_last_time_reopened=0;
   write_statistics_fp=NULL;
 }
+// For MPI
+int myrank, nprocs;
+int natoms_local, nstart_local;
+MPI_Comm comm;
 
 private:
 
@@ -225,6 +230,11 @@ void compute_list(const int natoms,const vector<Vector>& positions,const double 
   }
 }
 
+
+/**************************************************************
+  TODO: Parallelize this function:
+ **************************************************************/
+
 void compute_forces(const int natoms,const vector<Vector>& positions,const double cell[3],
                     double forcecutoff,const vector<vector<int> >& list,vector<Vector>& forces,double & engconf)
 {
@@ -237,10 +247,20 @@ void compute_forces(const int natoms,const vector<Vector>& positions,const doubl
 
   forcecutoff2=forcecutoff*forcecutoff;
   engconf=0.0;
+  // vector<Vector> forces(natoms);
   for(int i=0;i<natoms;i++)for(int k=0;k<3;k++) forces[i][k]=0.0;
   engcorrection=4.0*(1.0/pow(forcecutoff2,6.0)-1.0/pow(forcecutoff2,3));
-  for(int iatom=0;iatom<natoms-1;iatom++){
+
+  // for(int iatom=0;iatom<natoms-1;iatom++){
+
+#ifdef _STRIDE
+  for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
+#else
+  for(int iatom=nstart_local; (iatom < nstart_local+natoms_local) && (iatom<natoms-1);iatom++){
+#endif
+
     for(int jlist=0;jlist<list[iatom].size();jlist++){
+
       int jatom=list[iatom][jlist];
       for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
       pbc(cell,distance,distance_pbc);
@@ -258,6 +278,10 @@ void compute_forces(const int natoms,const vector<Vector>& positions,const doubl
       for(int k=0;k<3;k++) forces[jatom][k]-=f[k];
     }
   }
+
+  MPI_Allreduce(MPI_IN_PLACE, &forces[0][0], 3*natoms, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+  MPI_Allreduce(MPI_IN_PLACE, &engconf, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+
 }
 
 void compute_engkin(const int natoms,const vector<double>& masses,const vector<Vector>& velocities,double & engkin)
@@ -294,10 +318,16 @@ void write_positions(const string& trajfile,int natoms,const vector<Vector>& pos
   Vector pos;
   FILE*fp;
   if(write_positions_first){
-    fp=fopen(trajfile.c_str(),"w");
+    if (myrank==0)
+      fp=fopen(trajfile.c_str(),"w");
+    else
+      fp=fopen("/dev/null","w");
     write_positions_first=false;
   } else {
-    fp=fopen(trajfile.c_str(),"a");
+    if (myrank==0)
+      fp=fopen(trajfile.c_str(),"a");
+    else
+      fp=fopen("/dev/null","a");
   }
   fprintf(fp,"%d\n",natoms);
   fprintf(fp,"%f %f %f\n",cell[0],cell[1],cell[2]);
@@ -316,7 +346,10 @@ void write_final_positions(const string& outputfile,int natoms,const vector<Vect
 // write positions on file outputfile
   Vector pos;
   FILE*fp;
-  fp=fopen(outputfile.c_str(),"w");
+  if (myrank==0)
+    fp=fopen(outputfile.c_str(),"w");
+  else
+    fp=fopen("/dev/null","w");
   fprintf(fp,"%d\n",natoms);
   fprintf(fp,"%f %f %f\n",cell[0],cell[1],cell[2]);
   for(int iatom=0;iatom<natoms;iatom++){
@@ -335,13 +368,15 @@ void write_statistics(const string & statfile,const int istep,const double tstep
 // write statistics on file statfile
   if(write_statistics_first){
 // first time this routine is called, open the file
-    write_statistics_fp=fopen(statfile.c_str(),"w");
+    if(myrank==0) write_statistics_fp=fopen(statfile.c_str(),"w");
+    else          write_statistics_fp=fopen("/dev/null","w");
     write_statistics_first=false;
   }
   if(istep-write_statistics_last_time_reopened>100){
 // every 100 steps, reopen the file to flush the buffer
     fclose(write_statistics_fp);
-    write_statistics_fp=fopen(statfile.c_str(),"a");
+    if(myrank==0) write_statistics_fp=fopen(statfile.c_str(),"a");
+    else          write_statistics_fp=fopen("/dev/null","a");
     write_statistics_last_time_reopened=istep;
   }
   fprintf(write_statistics_fp,"%d %f %f %f %f %f\n",istep,istep*tstep,2.0*engkin/(3.0*natoms),engconf,engkin+engconf,engkin+engconf+engint);
@@ -399,23 +434,38 @@ int main(FILE*in,FILE*out){
 // number of atoms is read from file inputfile
   read_natoms(inputfile,natoms);
 
+// Handling of remainder rows
+  natoms_local = natoms/nprocs;      // Local domain size
+  nstart_local = natoms_local*myrank;
+  int rem_rows = natoms % nprocs;
+
+   // Handling of remainder atoms: Determine the number of rows for each process
+      // and distribute remaining load to last few rows 
+  if ( myrank >= nprocs-rem_rows ) {
+      natoms_local += 1;
+      nstart_local += myrank-nprocs+rem_rows;
+  }
+  std::cout << myrank << "/" << nprocs << "\tsize:" << natoms_local << "\tstart:" << nstart_local << std::endl;
+
 // write the parameters in output so they can be checked
-  fprintf(stdout,"%s %s\n","Starting configuration           :",inputfile.c_str());
-  fprintf(stdout,"%s %s\n","Final configuration              :",outputfile.c_str());
-  fprintf(stdout,"%s %d\n","Number of atoms                  :",natoms);
-  fprintf(stdout,"%s %f\n","Temperature                      :",temperature);
-  fprintf(stdout,"%s %f\n","Time step                        :",tstep);
-  fprintf(stdout,"%s %f\n","Friction                         :",friction);
-  fprintf(stdout,"%s %f\n","Cutoff for forces                :",forcecutoff);
-  fprintf(stdout,"%s %f\n","Cutoff for neighbour list        :",listcutoff);
-  fprintf(stdout,"%s %d\n","Number of steps                  :",nstep);
-  fprintf(stdout,"%s %d\n","Stride for trajectory            :",nconfig);
-  fprintf(stdout,"%s %s\n","Trajectory file                  :",trajfile.c_str());
-  fprintf(stdout,"%s %d\n","Stride for statistics            :",nstat);
-  fprintf(stdout,"%s %s\n","Statistics file                  :",statfile.c_str());
-  fprintf(stdout,"%s %d\n","Max average number of neighbours :",maxneighbour);
-  fprintf(stdout,"%s %d\n","Seed                             :",idum);
-  fprintf(stdout,"%s %s\n","Are atoms wrapped on output?     :",(wrapatoms?"T":"F"));
+  if (myrank==0){
+    fprintf(stdout,"%s %s\n","Starting configuration           :",inputfile.c_str());
+    fprintf(stdout,"%s %s\n","Final configuration              :",outputfile.c_str());
+    fprintf(stdout,"%s %d\n","Number of atoms                  :",natoms);
+    fprintf(stdout,"%s %f\n","Temperature                      :",temperature);
+    fprintf(stdout,"%s %f\n","Time step                        :",tstep);
+    fprintf(stdout,"%s %f\n","Friction                         :",friction);
+    fprintf(stdout,"%s %f\n","Cutoff for forces                :",forcecutoff);
+    fprintf(stdout,"%s %f\n","Cutoff for neighbour list        :",listcutoff);
+    fprintf(stdout,"%s %d\n","Number of steps                  :",nstep);
+    fprintf(stdout,"%s %d\n","Stride for trajectory            :",nconfig);
+    fprintf(stdout,"%s %s\n","Trajectory file                  :",trajfile.c_str());
+    fprintf(stdout,"%s %d\n","Stride for statistics            :",nstat);
+    fprintf(stdout,"%s %s\n","Statistics file                  :",statfile.c_str());
+    fprintf(stdout,"%s %d\n","Max average number of neighbours :",maxneighbour);
+    fprintf(stdout,"%s %d\n","Seed                             :",idum);
+    fprintf(stdout,"%s %s\n","Are atoms wrapped on output?     :",(wrapatoms?"T":"F"));
+  }
 
 // Setting the seed
   random.setSeed(idum);
@@ -445,7 +495,7 @@ int main(FILE*in,FILE*out){
 
   int list_size=0;
   for(int i=0;i<list.size();i++) list_size+=list[i].size();
-  fprintf(stdout,"List size: %d\n",list_size);
+  if (myrank==0) fprintf(stdout,"List size: %d\n",list_size);
   for(int iatom=0;iatom<natoms;++iatom) for(int k=0;k<3;++k) positions0[iatom][k]=positions[iatom][k];
 
 // forces are computed before starting md
@@ -510,11 +560,25 @@ int main(FILE*in,FILE*out){
 };
 
 int main(int argc,char*argv[]){
+
   SimpleMD smd;
+
+  /************* MPI *************/
+  MPI_Init(&argc,&argv);
+  smd.comm = MPI_COMM_WORLD;
+  MPI_Comm_rank(smd.comm, &smd.myrank);
+  MPI_Comm_size(smd.comm, &smd.nprocs);
+  /*******************************/
+  
   FILE* in=stdin;
   if(argc>1) in=fopen(argv[1],"r");
   int r=smd.main(in,stdout);
   if(argc>1) fclose(in);
+
+  /************* MPI *************/
+  MPI_Finalize();
+  /*******************************/
+
   return r;
  }
 
