@@ -569,24 +569,16 @@ int main(FILE*in,FILE*out){
 };
 
 int main(int argc,char*argv[]){
+  
+  MPI_Init(&argc,&argv);
 
   SimpleMD smd;
-
-  /************* MPI *************/
-  MPI_Init(&argc,&argv);
-  // smd.comm = MPI_COMM_WORLD;
-  // MPI_Comm_rank(smd.comm, &smd.myrank);
-  // MPI_Comm_size(smd.comm, &smd.nprocs);
-  // /*******************************/
-  
   FILE* in=stdin;
   if(argc>1) in=fopen(argv[1],"r");
   int r=smd.main(in,stdout);
   if(argc>1) fclose(in);
 
-  /************* MPI *************/
   MPI_Finalize();
-  /*******************************/
 
   return r;
  }
