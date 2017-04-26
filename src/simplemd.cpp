@@ -24,6 +24,11 @@ bool write_statistics_first;
 int write_statistics_last_time_reopened;
 FILE* write_statistics_fp;
 
+// For MPI
+int myrank, nprocs;
+int natoms_local, nstart_local;
+MPI_Comm comm;
+
 public:
 SimpleMD(){
   for(int i=0;i<32;i++) iv[i]=0.0;
@@ -35,10 +40,10 @@ SimpleMD(){
   write_statistics_last_time_reopened=0;
   write_statistics_fp=NULL;
 }
-// For MPI
-int myrank, nprocs;
-int natoms_local, nstart_local;
-MPI_Comm comm;
+// // For MPI
+// int myrank, nprocs;
+// int natoms_local, nstart_local;
+// MPI_Comm comm;
 
 private:
 
@@ -422,6 +427,12 @@ int main(FILE*in,FILE*out){
 
   Random random;                 // random numbers stream
 
+  /************* MPI *************/
+  comm = MPI_COMM_WORLD;
+  MPI_Comm_rank(comm, &myrank);
+  MPI_Comm_size(comm, &nprocs);
+  /*******************************/
+
   read_input(in,temperature,tstep,friction,forcecutoff,
              listcutoff,nstep,nconfig,nstat,
              wrapatoms,inputfile,outputfile,trajfile,statfile,
@@ -563,10 +574,10 @@ int main(int argc,char*argv[]){
 
   /************* MPI *************/
   MPI_Init(&argc,&argv);
-  smd.comm = MPI_COMM_WORLD;
-  MPI_Comm_rank(smd.comm, &smd.myrank);
-  MPI_Comm_size(smd.comm, &smd.nprocs);
-  /*******************************/
+  // smd.comm = MPI_COMM_WORLD;
+  // MPI_Comm_rank(smd.comm, &smd.myrank);
+  // MPI_Comm_size(smd.comm, &smd.nprocs);
+  // /*******************************/
   
   FILE* in=stdin;
   if(argc>1) in=fopen(argv[1],"r");
