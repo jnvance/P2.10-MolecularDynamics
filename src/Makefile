@@ -3,9 +3,10 @@ SOURCE=simplemd.cpp Vector.cpp Random.cpp
 all: simplemd.x
 
 simplemd.x: $(SOURCE)
-	g++ $(SOURCE) -O -o simplemd.x
+	g++-6 -g $(SOURCE) -O -o simplemd.x
 
 clean:
-	rm -f simplemd.x *.o
+	rm -rf simplemd.x *.o *.dSYM
 	
-	
+run: simplemd.x
+	cd ../input; ../src/simplemd.x in
