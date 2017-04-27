@@ -32,7 +32,7 @@ class SimpleMD
 
   // For MPI
   int myrank, nprocs;
-  int natoms_local, nstart_local;
+  // int natoms_local, nstart_local;
   MPI_Comm comm;
 
   // For linked cells
@@ -257,17 +257,6 @@ class SimpleMD
                 neighbors[mydomain].push_back(neighbor);
               }
         }
-
-#ifdef _PRINT_NEIGHBORS
-    if(myrank==0)
-    for (int idom = 0; idom < totdomains; idom++ ){
-      printf("%d\n",idom);
-      for(int i = 0; i < neighbors[idom].size(); i++ )
-        printf("%d\t",neighbors[idom][i]);
-      printf("\n");
-    }
-#endif
-
   }
 
   void compute_list(const int natoms,const vector<Vector>& positions,const double cell[3],const double listcutoff,
@@ -277,31 +266,16 @@ class SimpleMD
     double listcutoff2;  // squared list cutoff
     listcutoff2=listcutoff*listcutoff;
 
+# ifdef _CELL_LIST
+    list.assign(natoms,vector<int>());
     // Recalculate cell list
     vector<vector<int> > domain(totdomains);
     int i[3];
     for (int iatom = 0; iatom < natoms; ++iatom){
-    // Find the domain index along each axis
-      for(int k=0;k<3;k++) 
-        i[k] = modulo((int)floor(positions[iatom][k]/dcell[k]),ndomains[k]);  
-    // Determine the which overall index it belongs to
+      for(int k=0;k<3;k++) i[k] = modulo((int)floor(positions[iatom][k]/dcell[k]),ndomains[k]);  
       domain[INDEX(i[0],i[1],i[2],ndomains)].push_back(iatom);
     }
 
-    list.assign(natoms,vector<int>());
-#ifndef _STRIDE
-    for(int iatom=0;iatom<natoms-1;iatom++){
-      for(int jatom=iatom+1;jatom<natoms;jatom++){
-        for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
-        pbc(cell,distance,distance_pbc);
-  // if the interparticle distance is larger than the cutoff, skip
-        double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
-        if(d2>listcutoff2)continue;
-        list[iatom].push_back(jatom);
-      }
-    }
-  }
-#else
     for(int dom = 0; dom < totdomains; dom++){
       for(int i = 0; i < domain[dom].size(); i++ ){
         int iatom = domain[dom][i];
@@ -319,8 +293,20 @@ class SimpleMD
         }
       }
     }
+# else
+    list.assign(natoms/nprocs+1,vector<int>());
+    for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
+      for(int jatom=iatom+1;jatom<natoms;jatom++){
+        for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
+        pbc(cell,distance,distance_pbc);
+  // if the interparticle distance is larger than the cutoff, skip
+        double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
+        if(d2>listcutoff2)continue;
+        list[iatom/nprocs].push_back(jatom);
+      }
+    }
+# endif
   }
-#endif
 
   void compute_forces(const int natoms,const vector<Vector>& positions,const double cell[3],
                       double forcecutoff,const vector<vector<int> >& list,vector<Vector>& forces,double & engconf)
@@ -339,13 +325,15 @@ class SimpleMD
     engcorrection=4.0*(1.0/pow(forcecutoff2,6.0)-1.0/pow(forcecutoff2,3));
 
     for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
-#ifndef _STRIDE
-      for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
-        int jatom=list[iatom/nprocs][jlist];
-#else
+
+#ifdef _CELL_LIST
       for(int jlist=0;jlist<list[iatom].size();jlist++){
         int jatom=list[iatom][jlist];
+#else
+      for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
+        int jatom=list[iatom/nprocs][jlist];
 #endif
+
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
         distance_pbc2=0.0; for(int k=0;k<3;k++) distance_pbc2+=distance_pbc[k]*distance_pbc[k];
@@ -524,21 +512,6 @@ class SimpleMD
   // number of atoms is read from file inputfile
     read_natoms(inputfile,natoms);
 
-  // Handling of remainder rows
-    natoms_local = natoms/nprocs;      // Local domain size
-    nstart_local = natoms_local*myrank;
-    int rem_rows = natoms % nprocs;
-
-  // Distribute remaining load to first few rows 
-    if ( myrank < rem_rows ){
-        natoms_local += 1;
-        nstart_local += myrank;
-    }
-    else 
-        nstart_local += rem_rows;
-
-    std::cout << myrank << "/" << nprocs << "\tsize:" << natoms_local << "\tstart:" << nstart_local << std::endl;
-
   // write the parameters in output so they can be checked
     if (myrank==0){
       fprintf(stdout,"%s %s\n","Starting configuration           :",inputfile.c_str());
@@ -582,8 +555,10 @@ class SimpleMD
   // velocities are randomized according to temperature
     randomize_velocities(natoms,temperature,masses,velocities,random);
 
+#ifdef _CELL_LIST
   // compute cell list domains and neighbors
     compute_cells(natoms,cell,listcutoff);
+#endif
 
   // neighbour list are computed, and reference positions are saved
     compute_list(natoms,positions,cell,listcutoff,list);
