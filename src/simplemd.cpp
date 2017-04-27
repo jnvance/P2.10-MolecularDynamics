@@ -11,6 +11,12 @@
 using namespace std;
 using namespace PLMD;
 
+#define INDEX(i0,i1,i2,n) (i0 * n[1] + i1) * n[2] + i2
+
+inline int modulo(int a, int b){
+  int r = a % b;
+  return r + b * (r < 0);
+}
 
 class SimpleMD
 {
@@ -28,6 +34,12 @@ class SimpleMD
   int myrank, nprocs;
   int natoms_local, nstart_local;
   MPI_Comm comm;
+
+  // For linked cells
+  int ndomains[3];
+  int totdomains;
+  double dcell[3];
+  vector<vector<int> > neighbors;
 
   public:
   SimpleMD(){
@@ -211,6 +223,52 @@ class SimpleMD
     }
   }
 
+  void compute_cells(const int natoms, const double cell[3], const double listcutoff){
+
+    totdomains = 1;
+    for(int k=0;k<3;k++) {
+      ndomains[k] = cell[k]/listcutoff + 1;
+      totdomains *= ndomains[k];
+      dcell[k] = cell[k]/ndomains[k];
+    }
+    
+    // Works efficiently only for ndomains > 3 on each side
+    bool do_cell_list = (totdomains >= 64);
+    // if(myrank==0) printf("%d\t%d\t%f\t%f\t%f\n",myrank,totdomains,dcell[0],dcell[1],dcell[2]);  
+
+    // Calculate index of neighboring domains
+    // vector<vector<int> > neighbors(totdomains);
+    neighbors.resize(totdomains);
+    for (int i0 = 0; i0 < ndomains[0]; ++i0)
+      for (int i1 = 0; i1 < ndomains[1]; ++i1)
+        for (int i2 = 0; i2 < ndomains[2]; ++i2){
+          
+          int mydomain = INDEX(i0,i1,i2,ndomains);
+
+          for (int d0=-1; d0<=+1; ++d0)
+            for (int d1=-1; d1<=+1; ++d1)
+              for (int d2=-1; d2<=+1; ++d2){
+                int neighbor = INDEX(
+                                      modulo(i0+d0,ndomains[0]),
+                                      modulo(i1+d1,ndomains[1]),
+                                      modulo(i2+d2,ndomains[2]),
+                                      ndomains);
+                assert(neighbor >= 0 && neighbor < totdomains);
+                neighbors[mydomain].push_back(neighbor);
+              }
+        }
+
+#ifdef _PRINT_NEIGHBORS
+    if(myrank==0)
+    for (int idom = 0; idom < totdomains; idom++ ){
+      printf("%d\n",idom);
+      for(int i = 0; i < neighbors[idom].size(); i++ )
+        printf("%d\t",neighbors[idom][i]);
+      printf("\n");
+    }
+#endif
+
+  }
 
   void compute_list(const int natoms,const vector<Vector>& positions,const double cell[3],const double listcutoff,
                     vector<vector<int> >& list){
@@ -219,20 +277,50 @@ class SimpleMD
     double listcutoff2;  // squared list cutoff
     listcutoff2=listcutoff*listcutoff;
 
-    list.assign(natoms_local,vector<int>());
+    // Recalculate cell list
+    vector<vector<int> > domain(totdomains);
+    int i[3];
+    for (int iatom = 0; iatom < natoms; ++iatom){
+    // Find the domain index along each axis
+      for(int k=0;k<3;k++) 
+        i[k] = modulo((int)floor(positions[iatom][k]/dcell[k]),ndomains[k]);  
+    // Determine the which overall index it belongs to
+      domain[INDEX(i[0],i[1],i[2],ndomains)].push_back(iatom);
+    }
 
-    for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
+    list.assign(natoms,vector<int>());
+#ifndef _STRIDE
+    for(int iatom=0;iatom<natoms-1;iatom++){
       for(int jatom=iatom+1;jatom<natoms;jatom++){
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
   // if the interparticle distance is larger than the cutoff, skip
         double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
         if(d2>listcutoff2)continue;
-        list[iatom/nprocs].push_back(jatom);
+        list[iatom].push_back(jatom);
       }
     }
   }
-
+#else
+    for(int dom = 0; dom < totdomains; dom++){
+      for(int i = 0; i < domain[dom].size(); i++ ){
+        int iatom = domain[dom][i];
+        for(int jnei = 0; jnei < neighbors[dom].size(); jnei++ ){
+          for(int j = 0; j < domain[ neighbors[dom][jnei] ].size(); j++ ){
+            int jatom = domain[ neighbors[dom][jnei] ][j];
+            if(jatom<=iatom)continue;
+            for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
+            pbc(cell,distance,distance_pbc);
+          // if the interparticle distance is larger than the cutoff, skip
+            double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
+            if(d2>listcutoff2)continue;
+            list[iatom].push_back(jatom);
+          }
+        }
+      }
+    }
+  }
+#endif
 
   void compute_forces(const int natoms,const vector<Vector>& positions,const double cell[3],
                       double forcecutoff,const vector<vector<int> >& list,vector<Vector>& forces,double & engconf)
@@ -251,10 +339,13 @@ class SimpleMD
     engcorrection=4.0*(1.0/pow(forcecutoff2,6.0)-1.0/pow(forcecutoff2,3));
 
     for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
-
+#ifndef _STRIDE
       for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
         int jatom=list[iatom/nprocs][jlist];
-
+#else
+      for(int jlist=0;jlist<list[iatom].size();jlist++){
+        int jatom=list[iatom][jlist];
+#endif
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
         distance_pbc2=0.0; for(int k=0;k<3;k++) distance_pbc2+=distance_pbc[k]*distance_pbc[k];
@@ -490,6 +581,9 @@ class SimpleMD
 
   // velocities are randomized according to temperature
     randomize_velocities(natoms,temperature,masses,velocities,random);
+
+  // compute cell list domains and neighbors
+    compute_cells(natoms,cell,listcutoff);
 
   // neighbour list are computed, and reference positions are saved
     compute_list(natoms,positions,cell,listcutoff,list);
