@@ -238,10 +238,6 @@ void compute_list(const int natoms,const vector<Vector>& positions,const double 
 }
 
 
-/**************************************************************
-  TODO: Parallelize this function:
- **************************************************************/
-
 void compute_forces(const int natoms,const vector<Vector>& positions,const double cell[3],
                     double forcecutoff,const vector<vector<int> >& list,vector<Vector>& forces,double & engconf)
 {
