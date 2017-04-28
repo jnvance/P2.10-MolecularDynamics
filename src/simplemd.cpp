@@ -266,7 +266,9 @@ class SimpleMD
     double listcutoff2;  // squared list cutoff
     listcutoff2=listcutoff*listcutoff;
 
-# ifdef _CELL_LIST
+
+    #ifdef _CELL_LIST
+
     list.assign(natoms,vector<int>());
     // Recalculate cell list
     vector<vector<int> > domain(totdomains);
@@ -293,7 +295,9 @@ class SimpleMD
         }
       }
     }
-# else
+
+    #else
+
     list.assign(natoms/nprocs+1,vector<int>());
     for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
       for(int jatom=iatom+1;jatom<natoms;jatom++){
@@ -305,7 +309,9 @@ class SimpleMD
         list[iatom/nprocs].push_back(jatom);
       }
     }
-# endif
+
+    #endif
+
   }
 
   void compute_forces(const int natoms,const vector<Vector>& positions,const double cell[3],
@@ -326,13 +332,17 @@ class SimpleMD
 
     for(int iatom=myrank;iatom<natoms-1;iatom+=nprocs){
 
-#ifdef _CELL_LIST
+      #ifdef _CELL_LIST
+
       for(int jlist=0;jlist<list[iatom].size();jlist++){
         int jatom=list[iatom][jlist];
-#else
+      
+      #else
+      
       for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
         int jatom=list[iatom/nprocs][jlist];
-#endif
+      
+      #endif
 
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
@@ -555,10 +565,12 @@ class SimpleMD
   // velocities are randomized according to temperature
     randomize_velocities(natoms,temperature,masses,velocities,random);
 
-#ifdef _CELL_LIST
+  #ifdef _CELL_LIST
+
   // compute cell list domains and neighbors
     compute_cells(natoms,cell,listcutoff);
-#endif
+    
+  #endif
 
   // neighbour list are computed, and reference positions are saved
     compute_list(natoms,positions,cell,listcutoff,list);
