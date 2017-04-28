@@ -30,11 +30,6 @@ class SimpleMD
   int write_statistics_last_time_reopened;
   FILE* write_statistics_fp;
 
-  // For MPI
-  int myrank, nprocs;
-  // int natoms_local, nstart_local;
-  MPI_Comm comm;
-
   // For linked cells
   int ndomains[3];
   int totdomains;
@@ -52,6 +47,11 @@ class SimpleMD
     write_statistics_last_time_reopened=0;
     write_statistics_fp=NULL;
   }
+
+  // For MPI
+  int myrank, nprocs;
+  int ncoms, color;
+  MPI_Comm comm;
 
   private:
 
@@ -361,8 +361,8 @@ class SimpleMD
       }
     }
 
-    MPI_Allreduce(MPI_IN_PLACE, &forces[0][0], 3*natoms, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
-    MPI_Allreduce(MPI_IN_PLACE, &engconf, 1, MPI_DOUBLE, MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &forces[0][0], 3*natoms, MPI_DOUBLE, MPI_SUM, comm);
+    MPI_Allreduce(MPI_IN_PLACE, &engconf, 1, MPI_DOUBLE, MPI_SUM, comm);
 
   }
 
@@ -508,11 +508,11 @@ class SimpleMD
 
     Random random;                 // random numbers stream
 
-    /************* MPI *************/
-    comm = MPI_COMM_WORLD;
-    MPI_Comm_rank(comm, &myrank);
-    MPI_Comm_size(comm, &nprocs);
-    /*******************************/
+    // /************* MPI *************/
+    // comm = MPI_COMM_WORLD;
+    // MPI_Comm_rank(comm, &myrank);
+    // MPI_Comm_size(comm, &nprocs);
+    // /*******************************/
 
     read_input(in,temperature,tstep,friction,forcecutoff,
                listcutoff,nstep,nconfig,nstat,
@@ -569,7 +569,7 @@ class SimpleMD
 
   // compute cell list domains and neighbors
     compute_cells(natoms,cell,listcutoff);
-    
+
   #endif
 
   // neighbour list are computed, and reference positions are saved
@@ -642,18 +642,41 @@ class SimpleMD
 };
 
 int main(int argc,char*argv[]){
-  
+
+  // Note: disabled receiving input via stdin
+  assert(argc>1);
+
   MPI_Init(&argc,&argv);
+  int world_rank, world_size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
   SimpleMD smd;
+
+  // Determine how many simulations to implement
+  smd.ncoms = argc - 1;
+  smd.color = world_rank / (world_size / smd.ncoms);
+
+  // Crash if there are extras
+  assert(world_size % smd.ncoms == 0);
+
+  // Split the communicator based on the color and use the
+  // original rank for ordering
+  MPI_Comm_split(MPI_COMM_WORLD, smd.color, world_rank, &smd.comm);
+  MPI_Comm_rank(smd.comm, &smd.myrank);
+  MPI_Comm_size(smd.comm, &smd.nprocs);
+
+  printf("MPI %d: Original: %d/%d\tColor:%d \tNew: %d/%d\n", 
+          world_rank, world_rank, world_size, smd.color, smd.myrank, smd.nprocs);
+
   FILE* in=stdin;
-  if(argc>1) in=fopen(argv[1],"r");
+  if(argc>1) in=fopen(argv[smd.color+1],"r");
   int r=smd.main(in,stdout);
   if(argc>1) fclose(in);
 
   MPI_Finalize();
 
   return r;
- }
+}
 
 
