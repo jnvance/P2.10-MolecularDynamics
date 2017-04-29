@@ -49,8 +49,9 @@ class SimpleMD
   }
 
   // For MPI
+  int world_rank, world_size;
   int myrank, nprocs;
-  int ncoms, color;
+  int nrep, irep;
   MPI_Comm comm;
 
   private:
@@ -71,7 +72,8 @@ class SimpleMD
              string& trajfile,
              string& statfile,
              int&    maxneighbours,
-             int&    idum)
+             int&    idum,
+             int&    exchangestride)
   {
     temperature=1.0;
     tstep=0.005;
@@ -83,6 +85,7 @@ class SimpleMD
     nstat=1;
     maxneighbours=1000;
     idum=0;
+    exchangestride=50;
     wrapatoms=false;
     statfile="";
     trajfile="";
@@ -465,6 +468,110 @@ class SimpleMD
   }
 
 
+  void parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner, 
+                          Random& random, double& engconf, double& temperature, 
+                          vector<Vector>& positions, vector<Vector>& velocities, const int natoms)
+  {
+    int partner_rank = partner*world_size/nrep;
+    int swap = 0;
+
+    // perform parallel tempering on master processes only
+    if (myrank == 0)    
+    {
+
+      printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tpartner: %d\tworld_partner: %d\n", world_rank, irep, istep, partner,partner_rank);
+
+      // higher-ranked partner sends temperature 
+      // and potential energy to lower-ranked partner
+      double ET_buf[2];
+      if ( irep > partner ) 
+      {
+        ET_buf[0] = engconf;
+        ET_buf[1] = temperature;
+        
+        MPI_Send(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD);
+        
+        printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f sent\n",world_rank,irep,istep,ET_buf[0],ET_buf[1]);
+        
+        MPI_Recv(&swap, 1, MPI_INT, partner_rank, istep+2*nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      } 
+      else // lower-ranked partner performs the metropolis check
+      {
+        MPI_Recv(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        
+        printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f received\n", world_rank,irep,istep,ET_buf[0],ET_buf[1]);
+        
+        // check metropolis criterion
+        double acc = exp((1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]));
+        if (acc > 1)                  swap = 1;
+        else if (acc > random.U01())  swap = 1;
+
+        printf("\n\n\n >> MPI rank: %d\tirep: %d\tistep: %d\texponent: %f\tacc: %f\n\n\n\n", world_rank,irep,istep,(1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]),acc);
+
+        MPI_Send(&swap, 1, MPI_INT, partner_rank, istep+2*nstep, MPI_COMM_WORLD);
+      }
+
+      vector<Vector> buffer;
+
+      // swap particle positions and velocities
+      if (swap && (irep > partner)) {
+
+        printf(" >> MPI irep: %d\tSwap\n",irep);
+
+        // put positions in a buffer
+        buffer = positions;
+
+        // send positions buffer and receive positions
+        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep, 
+                      &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep,
+                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        // put velocities in a buffer
+        buffer = velocities;
+
+        // send velocities buffer and receive velocities
+        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep, 
+                      &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep,
+                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      }
+
+      if (swap && (irep < partner)) {
+
+        printf(" >> MPI irep: %d\tSwap\n",irep);
+        
+        // put positions in a buffer
+        buffer = positions;
+
+        // send positions buffer and receive positions
+        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep, 
+                      &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep,
+                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        // put velocities in a buffer
+        buffer = velocities;
+
+        // send velocities buffer and receive velocities
+        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep, 
+                      &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep,
+                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      }
+    }
+
+    // broadcast result of Metropolis check to subprocesses 
+    MPI_Bcast(&swap,1,MPI_INT,0,comm);
+
+    if (swap) {
+        // broadcast positions and velocities to subprocesses
+        printf(" >> MPI irep: %d\trank: %d\tSwap\n",irep,myrank);
+        
+        MPI_Bcast(&positions[0][0],  3*natoms, MPI_DOUBLE, 0, comm);
+        MPI_Bcast(&velocities[0][0], 3*natoms, MPI_DOUBLE, 0, comm);
+    }
+
+  }
+
+
+
 
   public:
   int main(FILE*in,FILE*out){
@@ -493,12 +600,14 @@ class SimpleMD
     int         nstat;             // stride for output of statistics
     int         maxneighbour;      // maximum average number of neighbours per atom
     int         idum;              // seed
+    int         exchangestride;    // stride to perform parallel tempering
     bool        wrapatoms;         // if true, atomic coordinates are written wrapped in minimal cell
     string      inputfile;         // name of file with starting configuration (xyz)
     string      outputfile;        // name of file with final configuration (xyz)
     string      trajfile;          // name of the trajectory file (xyz)
     string      statfile;          // name of the file with statistics
     string      string;            // a string for parsing
+
 
     double engkin;                 // kinetic energy
     double engconf;                // configurational energy
@@ -508,16 +617,10 @@ class SimpleMD
 
     Random random;                 // random numbers stream
 
-    // /************* MPI *************/
-    // comm = MPI_COMM_WORLD;
-    // MPI_Comm_rank(comm, &myrank);
-    // MPI_Comm_size(comm, &nprocs);
-    // /*******************************/
-
     read_input(in,temperature,tstep,friction,forcecutoff,
                listcutoff,nstep,nconfig,nstat,
                wrapatoms,inputfile,outputfile,trajfile,statfile,
-               maxneighbour,idum);
+               maxneighbour,idum,exchangestride);
 
   // number of atoms is read from file inputfile
     read_natoms(inputfile,natoms);
@@ -539,6 +642,7 @@ class SimpleMD
       fprintf(stdout,"%s %s\n","Statistics file                  :",statfile.c_str());
       fprintf(stdout,"%s %d\n","Max average number of neighbours :",maxneighbour);
       fprintf(stdout,"%s %d\n","Seed                             :",idum);
+      fprintf(stdout,"%s %d\n","Stride for parallel tempering    :",exchangestride);
       fprintf(stdout,"%s %s\n","Are atoms wrapped on output?     :",(wrapatoms?"T":"F"));
     }
 
@@ -594,6 +698,7 @@ class SimpleMD
   //   update velocities
   //   thermostat
   //   (eventually dump output informations)
+  //   perform parallel tempering
     for(int istep=0;istep<nstep;istep++){
       thermostat(natoms,masses,0.5*tstep,friction,temperature,velocities,engint,random);
 
@@ -622,12 +727,24 @@ class SimpleMD
       thermostat(natoms,masses,0.5*tstep,friction,temperature,velocities,engint,random);
 
   // kinetic energy is calculated
-    compute_engkin(natoms,masses,velocities,engkin);
+      compute_engkin(natoms,masses,velocities,engkin);
 
   // eventually, write positions and statistics
       if((istep+1)%nconfig==0) write_positions(trajfile,natoms,positions,cell,wrapatoms);
       if((istep+1)%nstat==0)   write_statistics(statfile,istep+1,tstep,natoms,engkin,engconf,engint);
 
+  // perform parallel tempering
+      if ((nrep>1)&&(istep%exchangestride==0)){
+    
+        // determine partner to exchange with
+        int partner=irep+(((istep+1)/exchangestride+irep)%2)*2-1;
+        if(partner<0) partner=0;
+        if(partner>=nrep) partner=nrep-1;
+        
+        // to reduce communication, do nothing if process is partnered with self
+        if (partner != irep)
+          parallel_tempering(istep,nstep,exchangestride,partner,random,engconf,temperature,positions,velocities,natoms);
+      }
     }
 
     write_final_positions(outputfile,natoms,positions,cell,wrapatoms);
@@ -646,33 +763,40 @@ int main(int argc,char*argv[]){
   // Note: disabled receiving input via stdin
   assert(argc>1);
 
-  MPI_Init(&argc,&argv);
-  int world_rank, world_size;
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
   SimpleMD smd;
 
+  MPI_Init(&argc,&argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &smd.world_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &smd.world_size);
+
   // Determine how many simulations to implement
-  smd.ncoms = argc - 1;
-  smd.color = world_rank / (world_size / smd.ncoms);
+  smd.nrep = argc - 1;
+  smd.irep = smd.world_rank / (smd.world_size / smd.nrep);
 
   // Crash if there are extras
-  assert(world_size % smd.ncoms == 0);
+  assert(smd.world_size % smd.nrep == 0);
 
-  // Split the communicator based on the color and use the
+  // Split the communicator based on the irep and use the
   // original rank for ordering
-  MPI_Comm_split(MPI_COMM_WORLD, smd.color, world_rank, &smd.comm);
+  MPI_Comm_split(MPI_COMM_WORLD, smd.irep, smd.world_rank, &smd.comm);
   MPI_Comm_rank(smd.comm, &smd.myrank);
   MPI_Comm_size(smd.comm, &smd.nprocs);
 
-  printf("MPI %d: Original: %d/%d\tColor:%d \tNew: %d/%d\n", 
-          world_rank, world_rank, world_size, smd.color, smd.myrank, smd.nprocs);
+  fprintf(stdout,"MPI %d: Original Rank: %d/%d\tirep:%d \tNew Rank: %d/%d\n", 
+          smd.world_rank, smd.world_rank, smd.world_size, smd.irep, smd.myrank, smd.nprocs);
 
   FILE* in=stdin;
-  if(argc>1) in=fopen(argv[smd.color+1],"r");
+  if(argc>1) in=fopen(argv[smd.irep+1],"r");
   int r=smd.main(in,stdout);
   if(argc>1) fclose(in);
+  
+  // Random random;
+  // random.setSeed(-smd.world_rank-10);
+
+  // for (int i = 0; i < 10; ++i)
+  // {
+  //   printf("%d\t%0.10f\n",smd.world_rank,random.RandU01());
+  // } 
 
   MPI_Finalize();
 
