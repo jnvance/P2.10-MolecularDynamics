@@ -4,3 +4,4 @@
 *.dat
 *.dSYM
 trash
+*.params
