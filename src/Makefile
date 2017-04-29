@@ -10,7 +10,7 @@ clean:
 	rm -rf simplemd.x *.o *.dSYM
 	
 run: simplemd.x
-	cd ../input; /usr/bin/time mpirun -np 2 ../src/simplemd.x in_parallel
+	cd ../input; /usr/bin/time mpirun -np 8 ../src/simplemd.x *.params
 
 purge:
 	cd ../input;
