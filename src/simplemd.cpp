@@ -56,7 +56,7 @@ class SimpleMD
 
   private:
 
-  void 
+  void
   read_input(FILE*   fp,
              double& temperature,
              double& tstep,
@@ -175,15 +175,15 @@ class SimpleMD
   }
 
   void read_natoms(const string & inputfile,int & natoms){
-  // read the number of atoms in file "input.xyz"
+    // read the number of atoms in file "input.xyz"
     FILE* fp=fopen(inputfile.c_str(),"r");
     fscanf(fp,"%d",&natoms);
     fclose(fp);
   }
 
   void read_positions(const string& inputfile,int natoms,vector<Vector>& positions,double cell[3]){
-  // read positions and cell from a file called inputfile
-  // natoms (input variable) and number of atoms in the file should be consistent
+    // read positions and cell from a file called inputfile
+    // natoms (input variable) and number of atoms in the file should be consistent
     FILE* fp=fopen(inputfile.c_str(),"r");
     char buffer[256];
     char atomname[256];
@@ -191,19 +191,19 @@ class SimpleMD
     fscanf(fp,"%lf %lf %lf",&cell[0],&cell[1],&cell[2]);
     for(int i=0;i<natoms;i++){
       fscanf(fp,"%s %lf %lf %lf",atomname,&positions[i][0],&positions[i][1],&positions[i][2]);
-  // note: atomname is read but not used
+    // note: atomname is read but not used
     }
     fclose(fp);
   }
 
   void randomize_velocities(const int natoms,const double temperature,const vector<double>&masses,vector<Vector>& velocities,Random&random){
-  // randomize the velocities according to the temperature
+    // randomize the velocities according to the temperature
     for(int iatom=0;iatom<natoms;iatom++) for(int i=0;i<3;i++)
         velocities[iatom][i]=sqrt(temperature/masses[iatom])*random.Gaussian();
   }
 
   void pbc(const double cell[3],const Vector & vin,Vector & vout){
-  // apply periodic boundary condition to a vector
+    // apply periodic boundary condition to a vector
     for(int i=0;i<3;i++){
       vout[i]=vin[i]-floor(vin[i]/cell[i]+0.5)*cell[i];
     }
@@ -212,12 +212,12 @@ class SimpleMD
   void check_list(const int natoms,const vector<Vector>& positions,const vector<Vector>&positions0,const double listcutoff,
                   const double forcecutoff,bool & recompute)
   {
-  // check if the neighbour list have to be recomputed
+    // check if the neighbour list have to be recomputed
     Vector displacement;  // displacement from positions0 to positions
     double delta2;        // square of the 'skin' thickness
     recompute=false;
     delta2=(0.5*(listcutoff-forcecutoff))*(0.5*(listcutoff-forcecutoff));
-  // if ANY atom moved more than half of the skin thickness, recompute is set to .true.
+    // if ANY atom moved more than half of the skin thickness, recompute is set to .true.
     for(int iatom=0;iatom<natoms;iatom++){
       for(int k=0;k<3;k++) displacement[k]=positions[iatom][k]-positions0[iatom][k];
       double s=0.0;
@@ -234,10 +234,9 @@ class SimpleMD
       totdomains *= ndomains[k];
       dcell[k] = cell[k]/ndomains[k];
     }
-    
+
     // Works efficiently only for ndomains > 3 on each side
     bool do_cell_list = (totdomains >= 64);
-    // if(myrank==0) printf("%d\t%d\t%f\t%f\t%f\n",myrank,totdomains,dcell[0],dcell[1],dcell[2]);  
 
     // Calculate index of neighboring domains
     // vector<vector<int> > neighbors(totdomains);
@@ -245,7 +244,7 @@ class SimpleMD
     for (int i0 = 0; i0 < ndomains[0]; ++i0)
       for (int i1 = 0; i1 < ndomains[1]; ++i1)
         for (int i2 = 0; i2 < ndomains[2]; ++i2){
-          
+
           int mydomain = INDEX(i0,i1,i2,ndomains);
 
           for (int d0=-1; d0<=+1; ++d0)
@@ -262,8 +261,7 @@ class SimpleMD
         }
   }
 
-  void compute_list(const int natoms,const vector<Vector>& positions,const double cell[3],const double listcutoff,
-                    vector<vector<int> >& list){
+  void compute_list(const int natoms,const vector<Vector>& positions,const double cell[3],const double listcutoff,vector<vector<int> >& list){
     Vector distance;     // distance of the two atoms
     Vector distance_pbc; // minimum-image distance of the two atoms
     double listcutoff2;  // squared list cutoff
@@ -277,7 +275,7 @@ class SimpleMD
     vector<vector<int> > domain(totdomains);
     int i[3];
     for (int iatom = 0; iatom < natoms; ++iatom){
-      for(int k=0;k<3;k++) i[k] = modulo((int)floor(positions[iatom][k]/dcell[k]),ndomains[k]);  
+      for(int k=0;k<3;k++) i[k] = modulo((int)floor(positions[iatom][k]/dcell[k]),ndomains[k]);
       domain[INDEX(i[0],i[1],i[2],ndomains)].push_back(iatom);
     }
 
@@ -290,7 +288,7 @@ class SimpleMD
             if(jatom<=iatom)continue;
             for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
             pbc(cell,distance,distance_pbc);
-          // if the interparticle distance is larger than the cutoff, skip
+            // if the interparticle distance is larger than the cutoff, skip
             double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
             if(d2>listcutoff2)continue;
             list[iatom].push_back(jatom);
@@ -306,7 +304,7 @@ class SimpleMD
       for(int jatom=iatom+1;jatom<natoms;jatom++){
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
-  // if the interparticle distance is larger than the cutoff, skip
+        // if the interparticle distance is larger than the cutoff, skip
         double d2=0; for(int k=0;k<3;k++) d2+=distance_pbc[k]*distance_pbc[k];
         if(d2>listcutoff2)continue;
         list[iatom/nprocs].push_back(jatom);
@@ -339,18 +337,18 @@ class SimpleMD
 
       for(int jlist=0;jlist<list[iatom].size();jlist++){
         int jatom=list[iatom][jlist];
-      
+
       #else
-      
+
       for(int jlist=0;jlist<list[iatom/nprocs].size();jlist++){
         int jatom=list[iatom/nprocs][jlist];
-      
+
       #endif
 
         for(int k=0;k<3;k++) distance[k]=positions[iatom][k]-positions[jatom][k];
         pbc(cell,distance,distance_pbc);
         distance_pbc2=0.0; for(int k=0;k<3;k++) distance_pbc2+=distance_pbc[k]*distance_pbc[k];
-  // if the interparticle distance is larger than the cutoff, skip
+        // if the interparticle distance is larger than the cutoff, skip
         if(distance_pbc2>forcecutoff2) continue;
         double distance_pbc6=distance_pbc2*distance_pbc2*distance_pbc2;
         double distance_pbc8=distance_pbc6*distance_pbc2;
@@ -358,7 +356,7 @@ class SimpleMD
         double distance_pbc14=distance_pbc12*distance_pbc2;
         engconf+=4.0*(1.0/distance_pbc12 - 1.0/distance_pbc6) - engcorrection;
         for(int k=0;k<3;k++) f[k]=2.0*distance_pbc[k]*4.0*(6.0/distance_pbc14-3.0/distance_pbc8);
-  // same force on the two atoms, with opposite sign:
+        // same force on the two atoms, with opposite sign:
         for(int k=0;k<3;k++) forces[iatom][k]+=f[k];
         for(int k=0;k<3;k++) forces[jatom][k]-=f[k];
       }
@@ -371,7 +369,7 @@ class SimpleMD
 
   void compute_engkin(const int natoms,const vector<double>& masses,const vector<Vector>& velocities,double & engkin)
   {
-  // calculate the kinetic energy from the velocities
+    // calculate the kinetic energy from the velocities
     engkin=0.0;
     for(int iatom=0;iatom<natoms;iatom++)for(int k=0;k<3;k++){
       engkin+=0.5*masses[iatom]*velocities[iatom][k]*velocities[iatom][k];
@@ -381,9 +379,9 @@ class SimpleMD
 
   void thermostat(const int natoms,const vector<double>& masses,const double dt,const double friction,
                   const double temperature,vector<Vector>& velocities,double & engint,Random & random){
-  // Langevin thermostat, implemented as decribed in Bussi and Parrinello, Phys. Rev. E (2007)
-  // it is a linear combination of old velocities and new, randomly chosen, velocity,
-  // with proper coefficients
+    // Langevin thermostat, implemented as decribed in Bussi and Parrinello, Phys. Rev. E (2007)
+    // it is a linear combination of old velocities and new, randomly chosen, velocity,
+    // with proper coefficients
     double c1,c2;
     c1=exp(-friction*dt);
     for(int iatom=0;iatom<natoms;iatom++){
@@ -398,8 +396,8 @@ class SimpleMD
 
   void write_positions(const string& trajfile,int natoms,const vector<Vector>& positions,const double cell[3],const bool wrapatoms)
   {
-  // write positions on file trajfile
-  // positions are appended at the end of the file
+    // write positions on file trajfile
+    // positions are appended at the end of the file
     Vector pos;
     FILE*fp;
     if(write_positions_first){
@@ -417,8 +415,8 @@ class SimpleMD
     fprintf(fp,"%d\n",natoms);
     fprintf(fp,"%f %f %f\n",cell[0],cell[1],cell[2]);
     for(int iatom=0;iatom<natoms;iatom++){
-  // usually, it is better not to apply pbc here, so that diffusion
-  // is more easily calculated from a trajectory file:
+    // usually, it is better not to apply pbc here, so that diffusion
+    // is more easily calculated from a trajectory file:
       if(wrapatoms) pbc(cell,positions[iatom],pos);
       else for(int k=0;k<3;k++) pos[k]=positions[iatom][k];
       fprintf(fp,"Ar %10.7f %10.7f %10.7f\n",pos[0],pos[1],pos[2]);
@@ -428,7 +426,7 @@ class SimpleMD
 
   void write_final_positions(const string& outputfile,int natoms,const vector<Vector>& positions,const double cell[3],const bool wrapatoms)
   {
-  // write positions on file outputfile
+    // write positions on file outputfile
     Vector pos;
     FILE*fp;
     if (myrank==0)
@@ -438,8 +436,8 @@ class SimpleMD
     fprintf(fp,"%d\n",natoms);
     fprintf(fp,"%f %f %f\n",cell[0],cell[1],cell[2]);
     for(int iatom=0;iatom<natoms;iatom++){
-  // usually, it is better not to apply pbc here, so that diffusion
-  // is more easily calculated from a trajectory file:
+    // usually, it is better not to apply pbc here, so that diffusion
+    // is more easily calculated from a trajectory file:
       if(wrapatoms) pbc(cell,positions[iatom],pos);
       else for(int k=0;k<3;k++) pos[k]=positions[iatom][k];
       fprintf(fp,"Ar %10.7f %10.7f %10.7f\n",pos[0],pos[1],pos[2]);
@@ -450,15 +448,15 @@ class SimpleMD
 
   void write_statistics(const string & statfile,const int istep,const double tstep,
                         const int natoms,const double engkin,const double engconf,const double engint){
-  // write statistics on file statfile
+    // write statistics on file statfile
     if(write_statistics_first){
-  // first time this routine is called, open the file
+    // first time this routine is called, open the file
       if(myrank==0) write_statistics_fp=fopen(statfile.c_str(),"w");
       else          write_statistics_fp=fopen("/dev/null","w");
       write_statistics_first=false;
     }
     if(istep-write_statistics_last_time_reopened>100){
-  // every 100 steps, reopen the file to flush the buffer
+    // every 100 steps, reopen the file to flush the buffer
       fclose(write_statistics_fp);
       if(myrank==0) write_statistics_fp=fopen(statfile.c_str(),"a");
       else          write_statistics_fp=fopen("/dev/null","a");
@@ -468,39 +466,39 @@ class SimpleMD
   }
 
 
-  void parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner, 
-                          Random& random, double& engconf, double& temperature, 
+  void parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner,
+                          Random& random, double& engconf, double& temperature,
                           vector<Vector>& positions, vector<Vector>& velocities, const int natoms)
   {
     int partner_rank = partner*world_size/nrep;
     int swap = 0;
 
     // perform parallel tempering on master processes only
-    if (myrank == 0)    
+    if (myrank == 0)
     {
 
       printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tpartner: %d\tworld_partner: %d\n", world_rank, irep, istep, partner,partner_rank);
 
-      // higher-ranked partner sends temperature 
+      // higher-ranked partner sends temperature
       // and potential energy to lower-ranked partner
       double ET_buf[2];
-      if ( irep > partner ) 
+      if ( irep > partner )
       {
         ET_buf[0] = engconf;
         ET_buf[1] = temperature;
-        
+
         MPI_Send(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD);
-        
+
         printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f sent\n",world_rank,irep,istep,ET_buf[0],ET_buf[1]);
-        
+
         MPI_Recv(&swap, 1, MPI_INT, partner_rank, istep+2*nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      } 
+      }
       else // lower-ranked partner performs the metropolis check
       {
         MPI_Recv(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        
+
         printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f received\n", world_rank,irep,istep,ET_buf[0],ET_buf[1]);
-        
+
         // check metropolis criterion
         double acc = exp((1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]));
         if (acc > 1)                  swap = 1;
@@ -522,7 +520,7 @@ class SimpleMD
         buffer = positions;
 
         // send positions buffer and receive positions
-        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep, 
+        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep,
                       &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep,
                       MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -530,7 +528,7 @@ class SimpleMD
         buffer = velocities;
 
         // send velocities buffer and receive velocities
-        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep, 
+        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep,
                       &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep,
                       MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       }
@@ -538,12 +536,12 @@ class SimpleMD
       if (swap && (irep < partner)) {
 
         printf(" >> MPI irep: %d\tSwap\n",irep);
-        
+
         // put positions in a buffer
         buffer = positions;
 
         // send positions buffer and receive positions
-        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep, 
+        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep,
                       &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep,
                       MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -551,19 +549,19 @@ class SimpleMD
         buffer = velocities;
 
         // send velocities buffer and receive velocities
-        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep, 
+        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep,
                       &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep,
                       MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       }
     }
 
-    // broadcast result of Metropolis check to subprocesses 
+    // broadcast result of Metropolis check to subprocesses
     MPI_Bcast(&swap,1,MPI_INT,0,comm);
 
     if (swap) {
         // broadcast positions and velocities to subprocesses
         printf(" >> MPI irep: %d\trank: %d\tSwap\n",irep,myrank);
-        
+
         MPI_Bcast(&positions[0][0],  3*natoms, MPI_DOUBLE, 0, comm);
         MPI_Bcast(&velocities[0][0], 3*natoms, MPI_DOUBLE, 0, comm);
     }
@@ -583,13 +581,13 @@ class SimpleMD
     double         cell[3];      // cell size
     double         cell9[3][3];  // cell size
 
-  // neighbour list variables
-  // see Allen and Tildesey book for details
+    // neighbour list variables
+    // see Allen and Tildesey book for details
     vector< vector<int> >  list;         // neighbour list
     vector<Vector> positions0;   // reference atomic positions, i.e. positions when the neighbour list
 
-  // input parameters
-  // all of them have a reasonable default value, set in read_input()
+    // input parameters
+    // all of them have a reasonable default value, set in read_input()
     double      tstep;             // simulation timestep
     double      temperature;       // temperature
     double      friction;          // friction for Langevin dynamics (for NVE, use 0)
@@ -622,10 +620,10 @@ class SimpleMD
                wrapatoms,inputfile,outputfile,trajfile,statfile,
                maxneighbour,idum,exchangestride);
 
-  // number of atoms is read from file inputfile
+    // number of atoms is read from file inputfile
     read_natoms(inputfile,natoms);
 
-  // write the parameters in output so they can be checked
+    // write the parameters in output so they can be checked
     if (myrank==0){
       fprintf(stdout,"%s %s\n","Starting configuration           :",inputfile.c_str());
       fprintf(stdout,"%s %s\n","Final configuration              :",outputfile.c_str());
@@ -646,10 +644,10 @@ class SimpleMD
       fprintf(stdout,"%s %s\n","Are atoms wrapped on output?     :",(wrapatoms?"T":"F"));
     }
 
-  // Setting the seed
+    // Setting the seed
     random.setSeed(idum);
 
-  // allocation of dynamical arrays
+    // allocation of dynamical arrays
     positions.resize(natoms);
     positions0.resize(natoms);
     velocities.resize(natoms);
@@ -657,26 +655,26 @@ class SimpleMD
     masses.resize(natoms);
     list.resize(natoms);
 
-  // masses are hard-coded to 1
+    // masses are hard-coded to 1
     for(unsigned i=0;i<natoms;++i) masses[i]=1.0;
 
-  // energy integral initialized to 0
+    // energy integral initialized to 0
     engint=0.0;
 
-  // positions are read from file inputfile
+    // positions are read from file inputfile
     read_positions(inputfile,natoms,positions,cell);
 
-  // velocities are randomized according to temperature
+    // velocities are randomized according to temperature
     randomize_velocities(natoms,temperature,masses,velocities,random);
 
   #ifdef _CELL_LIST
 
-  // compute cell list domains and neighbors
+    // compute cell list domains and neighbors
     compute_cells(natoms,cell,listcutoff);
 
   #endif
 
-  // neighbour list are computed, and reference positions are saved
+    // neighbour list are computed, and reference positions are saved
     compute_list(natoms,positions,cell,listcutoff,list);
 
     int list_size=0;
@@ -684,21 +682,21 @@ class SimpleMD
     if (myrank==0) fprintf(stdout,"List size: %d\n",list_size);
     for(int iatom=0;iatom<natoms;++iatom) for(int k=0;k<3;++k) positions0[iatom][k]=positions[iatom][k];
 
-  // forces are computed before starting md
+    // forces are computed before starting md
     compute_forces(natoms,positions,cell,forcecutoff,list,forces,engconf);
 
-  // here is the main md loop
-  // Langevin thermostat is applied before and after a velocity-Verlet integrator
-  // the overall structure is:
-  //   thermostat
-  //   update velocities
-  //   update positions
-  //   (eventually recompute neighbour list)
-  //   compute forces
-  //   update velocities
-  //   thermostat
-  //   (eventually dump output informations)
-  //   perform parallel tempering
+    // here is the main md loop
+    // Langevin thermostat is applied before and after a velocity-Verlet integrator
+    // the overall structure is:
+    //   thermostat
+    //   update velocities
+    //   update positions
+    //   (eventually recompute neighbour list)
+    //   compute forces
+    //   update velocities
+    //   thermostat
+    //   (eventually dump output informations)
+    //   perform parallel tempering
     for(int istep=0;istep<nstep;istep++){
       thermostat(natoms,masses,0.5*tstep,friction,temperature,velocities,engint,random);
 
@@ -708,7 +706,7 @@ class SimpleMD
       for(int iatom=0;iatom<natoms;iatom++) for(int k=0;k<3;k++)
         positions[iatom][k]+=velocities[iatom][k]*tstep;
 
-  // a check is performed to decide whether to recalculate the neighbour list
+      // a check is performed to decide whether to recalculate the neighbour list
       check_list(natoms,positions,positions0,listcutoff,forcecutoff,recompute_list);
       if(recompute_list){
         compute_list(natoms,positions,cell,listcutoff,list);
@@ -726,21 +724,21 @@ class SimpleMD
 
       thermostat(natoms,masses,0.5*tstep,friction,temperature,velocities,engint,random);
 
-  // kinetic energy is calculated
+      // kinetic energy is calculated
       compute_engkin(natoms,masses,velocities,engkin);
 
-  // eventually, write positions and statistics
+      // eventually, write positions and statistics
       if((istep+1)%nconfig==0) write_positions(trajfile,natoms,positions,cell,wrapatoms);
       if((istep+1)%nstat==0)   write_statistics(statfile,istep+1,tstep,natoms,engkin,engconf,engint);
 
-  // perform parallel tempering
+      // perform parallel tempering
       if ((nrep>1)&&(istep%exchangestride==0)){
-    
+
         // determine partner to exchange with
         int partner=irep+(((istep+1)/exchangestride+irep)%2)*2-1;
         if(partner<0) partner=0;
         if(partner>=nrep) partner=nrep-1;
-        
+
         // to reduce communication, do nothing if process is partnered with self
         if (partner != irep)
           parallel_tempering(istep,nstep,exchangestride,partner,random,engconf,temperature,positions,velocities,natoms);
@@ -749,7 +747,7 @@ class SimpleMD
 
     write_final_positions(outputfile,natoms,positions,cell,wrapatoms);
 
-  // close the statistic file if it was open:
+    // close the statistic file if it was open:
     if(write_statistics_fp) fclose(write_statistics_fp);
 
     return 0;
@@ -782,21 +780,13 @@ int main(int argc,char*argv[]){
   MPI_Comm_rank(smd.comm, &smd.myrank);
   MPI_Comm_size(smd.comm, &smd.nprocs);
 
-  fprintf(stdout,"MPI %d: Original Rank: %d/%d\tirep:%d \tNew Rank: %d/%d\n", 
+  fprintf(stdout,"MPI %d: Original Rank: %d/%d\tirep:%d \tNew Rank: %d/%d\n",
           smd.world_rank, smd.world_rank, smd.world_size, smd.irep, smd.myrank, smd.nprocs);
 
   FILE* in=stdin;
   if(argc>1) in=fopen(argv[smd.irep+1],"r");
   int r=smd.main(in,stdout);
   if(argc>1) fclose(in);
-  
-  // Random random;
-  // random.setSeed(-smd.world_rank-10);
-
-  // for (int i = 0; i < 10; ++i)
-  // {
-  //   printf("%d\t%0.10f\n",smd.world_rank,random.RandU01());
-  // } 
 
   MPI_Finalize();
 
