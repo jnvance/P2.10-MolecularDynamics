@@ -53,6 +53,9 @@ class SimpleMD
   int myrank, nprocs;
   int nrep, irep;
   MPI_Comm comm;
+  int myrank_col, nprocs_col;
+  MPI_Comm comm_col;
+
 
   private:
 
@@ -150,6 +153,8 @@ class SimpleMD
       }
       else if(keyword=="idum")
         sscanf(line.c_str(),"%s %d",buffer,&idum);
+      else if(keyword=="exchangestride")
+        sscanf(line.c_str(),"%s %d",buffer,&exchangestride);
       else{
         fprintf(stderr,"Unknown keywords :%s\n",keyword.c_str());
         exit(1);
@@ -363,7 +368,13 @@ class SimpleMD
     }
 
     MPI_Allreduce(MPI_IN_PLACE, &forces[0][0], 3*natoms, MPI_DOUBLE, MPI_SUM, comm);
+
+    // printf(" >> MPI rank: %3.3d-%3.3d\tengconf: %f\n",irep,myrank,engconf);
+
     MPI_Allreduce(MPI_IN_PLACE, &engconf, 1, MPI_DOUBLE, MPI_SUM, comm);
+
+    // printf(" >> MPI rank: %3.3d-%3.3d\tengconf_reduced: %f\n",irep,myrank,engconf);
+    assert(not(isnan(engconf)));
 
   }
 
@@ -466,18 +477,15 @@ class SimpleMD
   }
 
 
-  void parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner,
-                          Random& random, double& engconf, double& temperature,
+  int parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner,
+                          Random& random, double& engconf, const double temperature,
                           vector<Vector>& positions, vector<Vector>& velocities, const int natoms)
   {
-    int partner_rank = partner*world_size/nrep;
     int swap = 0;
 
     // perform parallel tempering on master processes only
     if (myrank == 0)
     {
-
-      printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tpartner: %d\tworld_partner: %d\n", world_rank, irep, istep, partner,partner_rank);
 
       // higher-ranked partner sends temperature
       // and potential energy to lower-ranked partner
@@ -487,85 +495,72 @@ class SimpleMD
         ET_buf[0] = engconf;
         ET_buf[1] = temperature;
 
-        MPI_Send(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD);
 
-        printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f sent\n",world_rank,irep,istep,ET_buf[0],ET_buf[1]);
+        MPI_Send(ET_buf, 2, MPI_DOUBLE, partner, istep+nstep, comm_col);
 
-        MPI_Recv(&swap, 1, MPI_INT, partner_rank, istep+2*nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&swap, 1, MPI_INT, partner, istep+2*nstep, comm_col, MPI_STATUS_IGNORE);
       }
       else // lower-ranked partner performs the metropolis check
       {
-        MPI_Recv(ET_buf, 2, MPI_DOUBLE, partner_rank, istep+nstep, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-        printf(" >> MPI rank: %d\tirep: %d\tistep: %d\tE: %f\tT: %f received\n", world_rank,irep,istep,ET_buf[0],ET_buf[1]);
+        MPI_Recv(ET_buf, 2, MPI_DOUBLE, partner, istep+nstep, comm_col, MPI_STATUS_IGNORE);
 
         // check metropolis criterion
-        double acc = exp((1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]));
-        if (acc > 1)                  swap = 1;
-        else if (acc > random.U01())  swap = 1;
+        double acc = (1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]);
+        if (acc > 0)                        swap = 1;
+        else if (acc > log(random.U01()))   swap = 1;
 
-        printf("\n\n\n >> MPI rank: %d\tirep: %d\tistep: %d\texponent: %f\tacc: %f\n\n\n\n", world_rank,irep,istep,(1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]),acc);
-
-        MPI_Send(&swap, 1, MPI_INT, partner_rank, istep+2*nstep, MPI_COMM_WORLD);
+        MPI_Send(&swap, 1, MPI_INT, partner, istep+2*nstep, comm_col);
       }
+    }
 
-      vector<Vector> buffer;
+    vector<Vector> buffer(natoms);
+
+    // Broadcast the result of metropolis step
+    MPI_Bcast(&swap, 1, MPI_INT, 0, comm);
 
       // swap particle positions and velocities
-      if (swap && (irep > partner)) {
+    if ((swap==1) && (irep > partner)) {
 
-        printf(" >> MPI irep: %d\tSwap\n",irep);
+      // put positions in a buffer
+      buffer = positions;
 
-        // put positions in a buffer
-        buffer = positions;
+      // send positions buffer and receive positions
+      MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner, 10*nstep+istep,
+                    &positions[0][0], 3*natoms, MPI_DOUBLE, partner, 20*nstep+istep,
+                    comm_col, MPI_STATUS_IGNORE);
 
-        // send positions buffer and receive positions
-        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep,
-                      &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep,
-                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      // put velocities in a buffer
+      buffer.clear();
+      buffer = velocities;
 
-        // put velocities in a buffer
-        buffer = velocities;
-
-        // send velocities buffer and receive velocities
-        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep,
-                      &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep,
-                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      }
-
-      if (swap && (irep < partner)) {
-
-        printf(" >> MPI irep: %d\tSwap\n",irep);
-
-        // put positions in a buffer
-        buffer = positions;
-
-        // send positions buffer and receive positions
-        MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner_rank, 20*nstep+istep,
-                      &positions[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 10*nstep+istep,
-                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        // put velocities in a buffer
-        buffer = velocities;
-
-        // send velocities buffer and receive velocities
-        MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner_rank, 40*nstep+istep,
-                      &velocities[0][0], 3*natoms, MPI_DOUBLE, partner_rank, 30*nstep+istep,
-                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      }
+      // send velocities buffer and receive velocities
+      MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner, 30*nstep+istep,
+                    &velocities[0][0], 3*natoms, MPI_DOUBLE, partner, 40*nstep+istep,
+                    comm_col, MPI_STATUS_IGNORE);
     }
 
-    // broadcast result of Metropolis check to subprocesses
-    MPI_Bcast(&swap,1,MPI_INT,0,comm);
+    if ((swap==1) && (irep < partner)) {
 
-    if (swap) {
-        // broadcast positions and velocities to subprocesses
-        printf(" >> MPI irep: %d\trank: %d\tSwap\n",irep,myrank);
+      // put positions in a buffer
+      buffer = positions;
 
-        MPI_Bcast(&positions[0][0],  3*natoms, MPI_DOUBLE, 0, comm);
-        MPI_Bcast(&velocities[0][0], 3*natoms, MPI_DOUBLE, 0, comm);
+      // send positions buffer and receive positions
+      MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner, 20*nstep+istep,
+                    &positions[0][0], 3*natoms, MPI_DOUBLE, partner, 10*nstep+istep,
+                    comm_col, MPI_STATUS_IGNORE);
+
+      // put velocities in a buffer
+      buffer.clear();
+      buffer = velocities;
+
+      // send velocities buffer and receive velocities
+      MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner, 40*nstep+istep,
+                    &velocities[0][0], 3*natoms, MPI_DOUBLE, partner, 30*nstep+istep,
+                    comm_col, MPI_STATUS_IGNORE);
     }
 
+    return swap;
   }
 
 
@@ -685,6 +680,10 @@ class SimpleMD
     // forces are computed before starting md
     compute_forces(natoms,positions,cell,forcecutoff,list,forces,engconf);
 
+    // count swaps with partner of higher rank
+    int swap_attempts = 0; // attempted swaps
+    int swap_count = 0;    // successful swaps
+
     // here is the main md loop
     // Langevin thermostat is applied before and after a velocity-Verlet integrator
     // the overall structure is:
@@ -733,15 +732,20 @@ class SimpleMD
 
       // perform parallel tempering
       if ((nrep>1)&&(istep%exchangestride==0)){
-
         // determine partner to exchange with
         int partner=irep+(((istep+1)/exchangestride+irep)%2)*2-1;
         if(partner<0) partner=0;
         if(partner>=nrep) partner=nrep-1;
-
         // to reduce communication, do nothing if process is partnered with self
+        int swap = 0;
         if (partner != irep)
-          parallel_tempering(istep,nstep,exchangestride,partner,random,engconf,temperature,positions,velocities,natoms);
+          swap = parallel_tempering(istep,nstep,exchangestride,partner,random,engconf,temperature,positions,velocities,natoms);
+        if (partner > irep) {
+          swap_attempts++;
+          swap_count += swap;
+          if(myrank==0 && swap==1)
+            printf("\nParticles swapped between simulations %4d and %-4d\n\n",irep,partner);
+        }
       }
     }
 
@@ -750,6 +754,20 @@ class SimpleMD
     // close the statistic file if it was open:
     if(write_statistics_fp) fclose(write_statistics_fp);
 
+    // gather data regarding swaps
+    vector<int> swap_attempts_data(nrep);
+    vector<int> swap_count_data(nrep);
+    vector<double> temperature_data(nrep);
+
+    MPI_Gather(&swap_attempts,1,MPI_INT,&swap_attempts_data[0],1,MPI_INT,0,comm_col);
+    MPI_Gather(&swap_count,1,MPI_INT,&swap_count_data[0],1,MPI_INT,0,comm_col);
+    MPI_Gather(&temperature,1,MPI_DOUBLE,&temperature_data[0],1,MPI_DOUBLE,0,comm_col);
+
+    if(nrep>1 && world_rank==0){
+      for (int i = 0; i < nrep-1; ++i)
+        printf("Swaps between %3d (T = %5.3f) and %-3d (T = %5.3f) :\t%5d/%-5d\n",
+          i,temperature_data[i],i+1,temperature_data[i+1],swap_count_data[i],swap_attempts_data[i]);
+    }
     return 0;
   }
 
@@ -780,8 +798,13 @@ int main(int argc,char*argv[]){
   MPI_Comm_rank(smd.comm, &smd.myrank);
   MPI_Comm_size(smd.comm, &smd.nprocs);
 
-  fprintf(stdout,"MPI %d: Original Rank: %d/%d\tirep:%d \tNew Rank: %d/%d\n",
-          smd.world_rank, smd.world_rank, smd.world_size, smd.irep, smd.myrank, smd.nprocs);
+  // Split the communicator transversally according to local rank
+  MPI_Comm_split(MPI_COMM_WORLD, smd.myrank, smd.world_rank, &smd.comm_col);
+  MPI_Comm_rank(smd.comm_col, &smd.myrank_col);
+  MPI_Comm_size(smd.comm_col, &smd.nprocs_col);
+
+  fprintf(stdout,"MPI: %3.3d\tOriginal Rank: %2d/%2d\tirep:%d \tComm Rank: %2d/%2d\tComm2 Rank: %2d/%2d\n",
+          smd.world_rank, smd.world_rank, smd.world_size, smd.irep, smd.myrank, smd.nprocs, smd.myrank_col,smd.nprocs_col);
 
   FILE* in=stdin;
   if(argc>1) in=fopen(argv[smd.irep+1],"r");
