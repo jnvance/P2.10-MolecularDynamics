@@ -1,10 +1,13 @@
 SOURCE=simplemd.cpp Vector.cpp Random.cpp
 MPICC=mpic++
 
-all: simplemd.x
+all: simplemd.x simplemd_ncl.x
 
 simplemd.x: $(SOURCE)
 	$(MPICC) -g $(SOURCE) -O -o simplemd.x -D_CELL_LIST
+
+simplemd_ncl.x: $(SOURCE)
+	$(MPICC) -g $(SOURCE) -O -o simplemd_ncl.x -DNN_CELL_LIST
 
 clean:
 	rm -rf simplemd.x *.o *.dSYM
