@@ -2,3 +2,6 @@
 *.x
 *.xyz
 *.dat
+*.dSYM
+trash
+*.params
