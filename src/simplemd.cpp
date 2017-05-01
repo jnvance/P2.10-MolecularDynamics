@@ -478,25 +478,24 @@ class SimpleMD
 
 
   int parallel_tempering(const int istep, const int nstep, const int exchangestride, const int partner,
-                          Random& random, double& engconf, const double temperature,
+                          Random& random, const double engconf, const double temperature,
                           vector<Vector>& positions, vector<Vector>& velocities, const int natoms)
   {
-    int swap = 0;
+    int swap = 0;         // store result of metropolis check (0 or 1)
+    double ET_buf[2];     // buffer for energy and temperature exchanges
 
     // perform parallel tempering on master processes only
     if (myrank == 0)
     {
 
-      // higher-ranked partner sends temperature
-      // and potential energy to lower-ranked partner
-      double ET_buf[2];
-      if ( irep > partner )
+      if ( irep > partner ) // process of higher rank sends data to lower rank
       {
         ET_buf[0] = engconf;
         ET_buf[1] = temperature;
 
-
         MPI_Send(ET_buf, 2, MPI_DOUBLE, partner, istep+nstep, comm_col);
+
+        // metropolis check performed in lower-ranked process
 
         MPI_Recv(&swap, 1, MPI_INT, partner, istep+2*nstep, comm_col, MPI_STATUS_IGNORE);
       }
@@ -519,14 +518,13 @@ class SimpleMD
     // Broadcast the result of metropolis step
     MPI_Bcast(&swap, 1, MPI_INT, 0, comm);
 
-      // swap particle positions and velocities
-    if ((swap==1) && (irep > partner)) {
-
+    // swap particle positions and velocities
+    if(swap==1){
       // put positions in a buffer
       buffer = positions;
 
       // send positions buffer and receive positions
-      MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner, 10*nstep+istep,
+      MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner, 20*nstep+istep,
                     &positions[0][0], 3*natoms, MPI_DOUBLE, partner, 20*nstep+istep,
                     comm_col, MPI_STATUS_IGNORE);
 
@@ -535,29 +533,17 @@ class SimpleMD
       buffer = velocities;
 
       // send velocities buffer and receive velocities
-      MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner, 30*nstep+istep,
+      MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner, 40*nstep+istep,
                     &velocities[0][0], 3*natoms, MPI_DOUBLE, partner, 40*nstep+istep,
                     comm_col, MPI_STATUS_IGNORE);
-    }
 
-    if ((swap==1) && (irep < partner)) {
+      // send and receive temperatures for rescaling
+      MPI_Sendrecv(&temperature, 1, MPI_DOUBLE, partner, istep+50*nstep,
+                   &ET_buf[1],   1, MPI_DOUBLE, partner, istep+50*nstep, comm_col, MPI_STATUS_IGNORE);
 
-      // put positions in a buffer
-      buffer = positions;
-
-      // send positions buffer and receive positions
-      MPI_Sendrecv( &buffer[0][0],    3*natoms, MPI_DOUBLE, partner, 20*nstep+istep,
-                    &positions[0][0], 3*natoms, MPI_DOUBLE, partner, 10*nstep+istep,
-                    comm_col, MPI_STATUS_IGNORE);
-
-      // put velocities in a buffer
-      buffer.clear();
-      buffer = velocities;
-
-      // send velocities buffer and receive velocities
-      MPI_Sendrecv( &buffer[0][0],     3*natoms, MPI_DOUBLE, partner, 40*nstep+istep,
-                    &velocities[0][0], 3*natoms, MPI_DOUBLE, partner, 30*nstep+istep,
-                    comm_col, MPI_STATUS_IGNORE);
+      // rescale velocities accordingly
+      double factor = sqrt( temperature / ET_buf[1] );
+      for(int iatom=0;iatom<natoms;iatom++) for(int i=0;i<3;i++) velocities[iatom][i] *= factor;
     }
 
     return swap;
