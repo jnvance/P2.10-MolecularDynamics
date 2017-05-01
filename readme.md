@@ -46,6 +46,8 @@ void compute_list(...){
 Results
 -------
 
+The following plots show the speedup in total run-time and efficiency relative to the serial case (1 MPI process) with increasing number of MPI processes.
+
 <img src="./figures/fig11_ncl_speedup.png" width="80%">
 
 <img src="./figures/fig12_ncl_eff.png" width="80%">
@@ -201,6 +203,8 @@ Results
 -------
 
 <img src="./figures/fig31_engconf.png" width="80%">
+
+<img src="./figures/fig32_acceptance.png" width="80%">
 
 
 
