@@ -722,10 +722,11 @@ class SimpleMD
         int partner=irep+(((istep+1)/exchangestride+irep)%2)*2-1;
         if(partner<0) partner=0;
         if(partner>=nrep) partner=nrep-1;
-        // to reduce communication, do nothing if process is partnered with self
+
         int swap = 0;
-        if (partner != irep)
+        if (partner != irep) // to reduce communication, do nothing if process is partnered with self
           swap = parallel_tempering(istep,nstep,exchangestride,partner,random,engconf,temperature,positions,velocities,natoms);
+
         if (partner > irep) {
           swap_attempts++;
           swap_count += swap;
@@ -740,20 +741,23 @@ class SimpleMD
     // close the statistic file if it was open:
     if(write_statistics_fp) fclose(write_statistics_fp);
 
-    // gather data regarding swaps
-    vector<int> swap_attempts_data(nrep);
-    vector<int> swap_count_data(nrep);
-    vector<double> temperature_data(nrep);
+    // gather data regarding swaps across master processes
+    if(nrep>1 && myrank==0){
+      vector<int> swap_attempts_data(nrep);
+      vector<int> swap_count_data(nrep);
+      vector<double> temperature_data(nrep);
 
-    MPI_Gather(&swap_attempts,1,MPI_INT,&swap_attempts_data[0],1,MPI_INT,0,comm_col);
-    MPI_Gather(&swap_count,1,MPI_INT,&swap_count_data[0],1,MPI_INT,0,comm_col);
-    MPI_Gather(&temperature,1,MPI_DOUBLE,&temperature_data[0],1,MPI_DOUBLE,0,comm_col);
+      MPI_Gather(&swap_attempts,1,MPI_INT,&swap_attempts_data[0],1,MPI_INT,0,comm_col);
+      MPI_Gather(&swap_count,1,MPI_INT,&swap_count_data[0],1,MPI_INT,0,comm_col);
+      MPI_Gather(&temperature,1,MPI_DOUBLE,&temperature_data[0],1,MPI_DOUBLE,0,comm_col);
 
-    if(nrep>1 && world_rank==0){
-      for (int i = 0; i < nrep-1; ++i)
-        printf("Swaps between %3d (T = %5.3f) and %-3d (T = %5.3f) :\t%5d/%-5d\n",
-          i,temperature_data[i],i+1,temperature_data[i+1],swap_count_data[i],swap_attempts_data[i]);
+      if(myrank_col==0)
+        for (int i = 0; i < nrep-1; ++i)
+          printf("Swaps between %3d (T = %5.3f) and %-3d (T = %5.3f) :\t%5d/%-5d\n",
+            i,temperature_data[i],i+1,temperature_data[i+1],swap_count_data[i],swap_attempts_data[i]);
+
     }
+
     return 0;
   }
 
