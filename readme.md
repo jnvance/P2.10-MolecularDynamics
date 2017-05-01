@@ -10,7 +10,7 @@ Assignment 1 - Parallelize force calculation
 TASK A
 ------
 
-[code](./src/simplemd.cpp#L323)
+[[code]](./src/simplemd.cpp#L323)
 ```c
 void compute_forces(...){
     ...
@@ -29,7 +29,7 @@ void compute_forces(...){
 TASK B
 ------
 
-[code](./src/simplemd.cpp#L269)
+[[code]](./src/simplemd.cpp#L269)
 ```c
 void compute_list(...){
     list.assign(natoms/nprocs+1,vector<int>());
@@ -47,7 +47,7 @@ Assignment 2 - Code Linked cells
 ================================
 
 
-[code](./src/simplemd.cpp#L234)
+[[code]](./src/simplemd.cpp#L234)
 ```c
 #define INDEX(i0,i1,i2,n) (i0 * n[1] + i1) * n[2] + i2
 
@@ -78,7 +78,7 @@ void compute_cells(const int natoms, const double cell[3], const double listcuto
 ```
 
 
-[code](./src/simplemd.cpp#L269)
+[[code]](./src/simplemd.cpp#L269)
 ```c
 void compute_list(...){
     ...
@@ -103,7 +103,7 @@ Assignment 3 - Parallel tempering
 For auto-generating parameter files: [gen_input.py](./input/gen_input.py)
 
 
-[code](./src/simplemd.cpp#L480)
+[[code]](./src/simplemd.cpp#L480)
 ```
   int parallel_tempering(...)
   {
