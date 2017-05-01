@@ -47,6 +47,7 @@ Results
 -------
 
 The following plots show the speedup in total run-time and efficiency relative to the serial case (1 MPI process) with increasing number of MPI processes.
+Both plots show that scalability improves as the `lattice` parameter is increased and more particles are evolved.
 
 <img src="./figures/fig11_ncl_speedup.png" width="80%">
 
@@ -112,9 +113,15 @@ void compute_list(...){
 Results
 -------
 
+The following plots show the speedup in total run-time and efficiency relative to the serial case (1 MPI process) with increasing number of MPI processes.
+Both plots show that scalability is poor with this naive implementation of cell lists.
+
 <img src="./figures/fig21_cl_speedup.png" width="80%">
 
 <img src="./figures/fig22_cl_eff.png" width="80%">
+
+In the following figure, we plot the speedup with respect to the implementation without cell lists obtained in Assignment 1.
+We see improvement in the timing for lower number of MPI processes and bigger number of particles.
 
 <img src="./figures/fig23_speedup_cl_ncl.png" width="80%">
 
@@ -202,7 +209,11 @@ For auto-generating parameter files: [gen_input.py](./input/gen_input.py)
 Results
 -------
 
+To verify that the parallel tempering implementation is working correctly, we look at the potential energy for different values of the exchange stride. A low value means frequent exchanges, while the max value which exceeds nsteps means no exchanges occur. We see that we get relatively the same potential energy for each replica.
+
 <img src="./figures/fig31_engconf.png" width="80%">
+
+We also look at the behaviour of the acceptance ratio of the swaps with respect to the size of the system. We see that as the system size increases, the Metropolis criterion accepts the swaps even less.
 
 <img src="./figures/fig32_acceptance.png" width="80%">
 
