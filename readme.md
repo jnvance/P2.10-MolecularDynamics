@@ -43,6 +43,16 @@ void compute_list(...){
 }
 ```
 
+Results
+-------
+
+<img src="./figures/fig11_ncl_speedup.png" width="80%">
+
+<img src="./figures/fig12_ncl_eff.png" width="80%">
+
+
+
+
 Assignment 2 - Code Linked cells
 ================================
 
@@ -96,6 +106,16 @@ void compute_list(...){
     ...
 }
 ```
+
+Results
+-------
+
+<img src="./figures/fig21_cl_speedup.png" width="80%">
+
+<img src="./figures/fig22_cl_eff.png" width="80%">
+
+<img src="./figures/fig23_speedup_cl_ncl.png" width="80%">
+
 
 Assignment 3 - Parallel tempering
 =================================
@@ -177,7 +197,10 @@ For auto-generating parameter files: [gen_input.py](./input/gen_input.py)
 ```
 
 
+Results
+-------
 
+<img src="./figures/fig31_engconf.png" width="80%">
 
 
 
