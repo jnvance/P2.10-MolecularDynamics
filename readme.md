@@ -104,7 +104,7 @@ For auto-generating parameter files: [gen_input.py](./input/gen_input.py)
 
 
 [[code]](./src/simplemd.cpp#L480)
-```
+```c
   int parallel_tempering(...)
   {
     int swap = 0;         // store result of metropolis check (0 or 1)
