@@ -34,11 +34,16 @@ for file in os.listdir():
 
 istr = lambda k,n=3: str(k).zfill(n)
 
-nrep = 4
-minTemp = 0.7
-maxTemp = 1.0
+nrep = 16
+minTemp = 1.0
+maxTemp = 1.5
 
-temps = np.linspace(minTemp,maxTemp,nrep)
+# geometric spacing
+r = np.power(maxTemp/minTemp,1.0/(nrep-1))
+temps = np.power(r,range(nrep))
+
+# # linear spacing
+# temps = np.linspace(minTemp,maxTemp,nrep)
 
 for idtemp in range(nrep):
 
