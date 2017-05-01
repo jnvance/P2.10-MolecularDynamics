@@ -197,7 +197,10 @@ For auto-generating parameter files: [gen_input.py](./input/gen_input.py)
 ```
 
 
+Results
+-------
 
+<img src="./figures/fig31_engconf.png" width="80%">
 
 
 
