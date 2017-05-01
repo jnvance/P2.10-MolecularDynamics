@@ -508,7 +508,7 @@ class SimpleMD
         // check metropolis criterion
         double acc = (1.0/temperature - 1.0/ET_buf[1])*(engconf-ET_buf[0]);
         if (acc > 0)                        swap = 1;
-        else if (acc > log(random.U01()))   swap = 1;
+        else if (exp(acc) > random.U01())   swap = 1;
 
         MPI_Send(&swap, 1, MPI_INT, partner, istep+2*nstep, comm_col);
       }
